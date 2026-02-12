@@ -4,7 +4,7 @@ on:
   schedule:
     # Jalan setiap hari Sabtu pukul 09:00 WIB
     # (09:00 WIB = 02:00 UTC)
-    - cron: '0 2 * * 6'
+    - cron: '0 5 * * 4'
   
   # Tombol manual untuk run kapan saja dari tab "Actions"
   workflow_dispatch:
