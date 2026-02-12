@@ -30,10 +30,10 @@ class UltimateScreener:
         if not os.path.exists(self.ticker_file):
             print(f"{Colors.WARNING}[!] File {self.ticker_file} tidak ditemukan. Membuat default LQ45...{Colors.ENDC}")
             default_tickers = [
-                "BBCA", "BBRI", "BMRI", "BBNI", "TLKM", "OASA", "NRCA", "NETV",
-                "BULL", "ADRO", "PGAS", "PTBA", "KRAS", "MBMA", "MDKA", "ERAL",
-                "KBLV", "MINA", "BIPI", "APEX", "MUTU", "GPRA",
-                "AMMN", "MAPA", "MEDC", "AKRA", "EXCL", "ISAT", "CDIA", "BRPT"
+                "BBCA", "BBRI", "BMRI", "BBNI", "TLKM", "ASII", "UNTR", "ICBP",
+                "GOTO", "ADRO", "PGAS", "PTBA", "ANTM", "INCO", "MDKA", "BRIS",
+                "KLBF", "INDF", "INKP", "TKIM", "CPIN", "JPFA", "SMGR", "INTP",
+                "AMRT", "MAPI", "MEDC", "AKRA", "EXCL", "ISAT", "ACES", "BRPT"
             ]
             with open(self.ticker_file, 'w') as f:
                 for t in default_tickers:
@@ -51,10 +51,14 @@ class UltimateScreener:
         return list(set(clean_tickers))
 
     def calculate_indicators(self, df):
+        # Butuh data minimal 200 candle untuk MA200
         if len(df) < 200: return None
         data = df.copy()
 
-        # MA
+        # --- UPDATE: Menambahkan MA9, MA20, MA50 ---
+        data['MA9'] = data['Close'].rolling(window=9).mean()
+        data['MA20'] = data['Close'].rolling(window=20).mean()
+        data['MA50'] = data['Close'].rolling(window=50).mean()
         data['MA200'] = data['Close'].rolling(window=200).mean()
 
         # RSI (14)
@@ -65,13 +69,13 @@ class UltimateScreener:
         rs = rs.replace([np.inf, -np.inf], 0).fillna(0)
         data['RSI'] = 100 - (100 / (1 + rs))
 
-        # MACD
+        # MACD (12, 26, 9)
         k = data['Close'].ewm(span=12, adjust=False, min_periods=12).mean()
         d = data['Close'].ewm(span=26, adjust=False, min_periods=26).mean()
         data['MACD'] = k - d
         data['MACD_Signal'] = data['MACD'].ewm(span=9, adjust=False, min_periods=9).mean()
 
-        # Stochastic
+        # Stochastic (14, 3, 3)
         low_min = data['Low'].rolling(window=14).min()
         high_max = data['High'].rolling(window=14).max()
         denom = high_max - low_min
@@ -92,7 +96,7 @@ class UltimateScreener:
         signals = []
         score = 0 
         
-        # Logic
+        # 1. MA Trend (Existing)
         trend_status = "SIDEWAYS"
         if curr['Close'] > curr['MA200']:
             score += 1 
@@ -101,6 +105,25 @@ class UltimateScreener:
             trend_status = "DOWN < MA200"
             score -= 1
 
+        # --- UPDATE: MA CROSSING LOGIC ---
+        
+        # A. MA9 Crossing MA20 (Short Term)
+        if prev['MA9'] < prev['MA20'] and curr['MA9'] > curr['MA20']:
+            signals.append("MA9 CROSS MA20 (BULL)")
+            score += 1.5
+        elif prev['MA9'] > prev['MA20'] and curr['MA9'] < curr['MA20']:
+            signals.append("MA9 CROSS MA20 (BEAR)")
+            score -= 1.5
+
+        # B. MA20 Crossing MA50 (Medium Term)
+        if prev['MA20'] < prev['MA50'] and curr['MA20'] > curr['MA50']:
+            signals.append("MA20 CROSS MA50 (BULL)")
+            score += 2.0
+        elif prev['MA20'] > prev['MA50'] and curr['MA20'] < curr['MA50']:
+            signals.append("MA20 CROSS MA50 (BEAR)")
+            score -= 2.0
+
+        # 2. MACD
         macd_cross = "-"
         if prev['MACD'] < prev['MACD_Signal'] and curr['MACD'] > curr['MACD_Signal']:
             macd_cross = "GOLDEN CROSS"
@@ -111,6 +134,7 @@ class UltimateScreener:
             signals.append("MACD BEAR")
             score -= 2
 
+        # 3. RSI
         rsi_val = curr['RSI']
         rsi_desc = f"{rsi_val:.0f}"
         if rsi_val < 30:
@@ -124,6 +148,7 @@ class UltimateScreener:
                 signals.append("RSI REV DOWN")
                 score -= 1.5
 
+        # 4. Stochastic
         stoch_desc = "-"
         if curr['Stoch_K'] < 20 and curr['Stoch_K'] > curr['Stoch_D'] and prev['Stoch_K'] < prev['Stoch_D']:
             stoch_desc = "CROSS UP"
@@ -134,6 +159,7 @@ class UltimateScreener:
             signals.append("STOCH BEAR")
             score -= 1
 
+        # 5. OBV
         obv_trend = "-"
         if df['OBV'].iloc[-1] > df['OBV'].iloc[-5]:
             obv_trend = "UP"
